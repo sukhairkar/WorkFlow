@@ -1,0 +1,330 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+  schemas   = ["public"]
+}
+
+model Profile {
+  id               String            @id @db.Uuid
+  email            String?           @unique
+  full_name        String?
+  avatar_url       String?
+  created_at       DateTime          @default(now())
+  updated_at       DateTime          @updatedAt
+  password         String?           @db.VarChar(255) // Optional, for hashed passwords
+  // Relationships
+  workspaces       Workspace[]       @relation("CreatedWorkspaces")
+  workspaceMembers WorkspaceMember[]
+  createdProjects  Project[]         @relation("CreatedProjects")
+  assignedTasks    Task[]            @relation("AssignedTasks")
+  createdTasks     Task[]            @relation("CreatedTasks")
+  createdEvents    Event[]           @relation("CreatedEvents")
+  eventAttendees   EventAttendee[]
+  taskComments     TaskComment[]
+  notifications    Notification[]
+  TaskAttachment   TaskAttachment[]
+  createdChatRooms ChatRoom[]        @relation("CreatedChatRooms")
+  sentMessages     Message[]         @relation("SentMessages")
+
+  @@index([email])
+  @@map("profiles")
+  @@schema("public")
+}
+
+model Workspace {
+  id          String   @id @default(uuid()) @db.Uuid
+  name        String
+  description String?
+  created_by  String?  @db.Uuid
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+
+  // Relationships
+  creator  Profile?          @relation("CreatedWorkspaces", fields: [created_by], references: [id], onDelete: SetNull)
+  members  WorkspaceMember[]
+  projects Project[]
+  events   Event[]
+
+  @@index([created_by])
+  @@map("workspaces")
+  @@schema("public")
+}
+
+model WorkspaceMember {
+  id           String   @id @default(uuid()) @db.Uuid
+  workspace_id String   @db.Uuid
+  user_id      String   @db.Uuid
+  role         Role     @default(MEMBER)
+  joined_at    DateTime @default(now())
+
+  // Relationships
+  workspace Workspace @relation(fields: [workspace_id], references: [id], onDelete: Cascade)
+  user      Profile   @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@unique([workspace_id, user_id])
+  @@index([workspace_id])
+  @@index([user_id])
+  @@map("workspace_members")
+  @@schema("public")
+}
+
+model Project {
+  id           String        @id @default(uuid()) @db.Uuid
+  workspace_id String        @db.Uuid
+  name         String
+  description  String?
+  status       ProjectStatus @default(ACTIVE)
+  created_by   String?       @db.Uuid
+  start_date   DateTime?
+  end_date     DateTime?
+  created_at   DateTime      @default(now())
+  updated_at   DateTime      @updatedAt
+
+  // Relationships
+  workspace Workspace @relation(fields: [workspace_id], references: [id], onDelete: Cascade)
+  creator   Profile?  @relation("CreatedProjects", fields: [created_by], references: [id], onDelete: SetNull)
+  tasks     Task[]
+  events    Event[]
+
+  @@index([workspace_id])
+  @@index([created_by])
+  @@index([status])
+  @@map("projects")
+  @@schema("public")
+}
+
+model Task {
+  id             String       @id @default(uuid()) @db.Uuid
+  project_id     String       @db.Uuid
+  title          String
+  description    String?
+  status         TaskStatus   @default(TODO)
+  priority       TaskPriority @default(MEDIUM)
+  assigned_to    String?      @db.Uuid
+  created_by     String?      @db.Uuid
+  due_date       DateTime?
+  parent_task_id String?      @db.Uuid
+  created_at     DateTime     @default(now())
+  updated_at     DateTime     @updatedAt
+
+  // Relationships
+  project      Project          @relation(fields: [project_id], references: [id], onDelete: Cascade)
+  assignedUser Profile?         @relation("AssignedTasks", fields: [assigned_to], references: [id], onDelete: SetNull)
+  creator      Profile?         @relation("CreatedTasks", fields: [created_by], references: [id], onDelete: SetNull)
+  parentTask   Task?            @relation("Subtasks", fields: [parent_task_id], references: [id], onDelete: SetNull)
+  subtasks     Task[]           @relation("Subtasks")
+  comments     TaskComment[]
+  attachments  TaskAttachment[]
+
+  @@index([project_id])
+  @@index([assigned_to])
+  @@index([created_by])
+  @@index([status])
+  @@index([priority])
+  @@index([due_date])
+  @@index([parent_task_id])
+  @@map("tasks")
+  @@schema("public")
+}
+
+model Event {
+  id           String    @id @default(uuid()) @db.Uuid
+  workspace_id String    @db.Uuid
+  project_id   String?   @db.Uuid
+  title        String
+  description  String?
+  start_time   DateTime
+  end_time     DateTime
+  location     String?
+  event_type   EventType @default(MEETING)
+  created_by   String?   @db.Uuid
+  created_at   DateTime  @default(now())
+  updated_at   DateTime  @updatedAt
+
+  // Relationships
+  workspace Workspace       @relation(fields: [workspace_id], references: [id], onDelete: Cascade)
+  project   Project?        @relation(fields: [project_id], references: [id], onDelete: SetNull)
+  creator   Profile?        @relation("CreatedEvents", fields: [created_by], references: [id], onDelete: SetNull)
+  attendees EventAttendee[]
+
+  @@index([workspace_id])
+  @@index([project_id])
+  @@index([created_by])
+  @@index([start_time])
+  @@index([event_type])
+  @@map("events")
+  @@schema("public")
+}
+
+model EventAttendee {
+  id       String           @id @default(uuid()) @db.Uuid
+  event_id String           @db.Uuid
+  user_id  String           @db.Uuid
+  status   AttendanceStatus @default(PENDING)
+
+  // Relationships
+  event Event   @relation(fields: [event_id], references: [id], onDelete: Cascade)
+  user  Profile @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@unique([event_id, user_id])
+  @@index([event_id])
+  @@index([user_id])
+  @@map("event_attendees")
+  @@schema("public")
+}
+
+model TaskComment {
+  id         String   @id @default(uuid()) @db.Uuid
+  task_id    String   @db.Uuid
+  user_id    String   @db.Uuid
+  content    String
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  // Relationships
+  task Task    @relation(fields: [task_id], references: [id], onDelete: Cascade)
+  user Profile @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([task_id])
+  @@index([user_id])
+  @@map("task_comments")
+  @@schema("public")
+}
+
+model TaskAttachment {
+  id          String   @id @default(uuid()) @db.Uuid
+  task_id     String   @db.Uuid
+  file_name   String
+  file_url    String
+  file_size   Int?
+  mime_type   String?
+  uploaded_by String?  @db.Uuid
+  created_at  DateTime @default(now())
+
+  // Relationships
+  task     Task     @relation(fields: [task_id], references: [id], onDelete: Cascade)
+  uploader Profile? @relation(fields: [uploaded_by], references: [id], onDelete: SetNull)
+
+  @@index([task_id])
+  @@index([uploaded_by])
+  @@map("task_attachments")
+  @@schema("public")
+}
+
+model Notification {
+  id         String           @id @default(uuid()) @db.Uuid
+  user_id    String           @db.Uuid
+  title      String
+  message    String
+  type       NotificationType @default(INFO)
+  related_id String?          @db.Uuid
+  read       Boolean          @default(false)
+  created_at DateTime         @default(now())
+
+  // Relationships
+  user Profile @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([user_id])
+  @@index([read])
+  @@index([created_at])
+  @@map("notifications")
+  @@schema("public")
+}
+
+// Enums
+enum Role {
+  SUPER_ADMIN     @map("super_admin")
+  WORKSPACE_ADMIN @map("workspace_admin")
+  ORGANIZER       @map("organizer")
+  MEMBER          @map("member")
+  GUEST           @map("guest")
+
+  @@schema("public")
+}
+
+enum ProjectStatus {
+  ACTIVE    @map("active")
+  COMPLETED @map("completed")
+  ARCHIVED  @map("archived")
+  ON_HOLD   @map("on_hold")
+
+  @@schema("public")
+}
+
+enum TaskStatus {
+  TODO        @map("todo")
+  IN_PROGRESS @map("in_progress")
+  REVIEW      @map("review")
+  COMPLETED   @map("completed")
+
+  @@schema("public")
+}
+
+enum TaskPriority {
+  LOW    @map("low")
+  MEDIUM @map("medium")
+  HIGH   @map("high")
+  URGENT @map("urgent")
+
+  @@schema("public")
+}
+
+enum EventType {
+  MEETING   @map("meeting")
+  DEADLINE  @map("deadline")
+  MILESTONE @map("milestone")
+  SOCIAL    @map("social")
+  WORKSHOP  @map("workshop")
+
+  @@schema("public")
+}
+
+enum AttendanceStatus {
+  PENDING  @map("pending")
+  ACCEPTED @map("accepted")
+  DECLINED @map("declined")
+  MAYBE    @map("maybe")
+
+  @@schema("public")
+}
+
+enum NotificationType {
+  INFO    @map("info")
+  WARNING @map("warning")
+  ERROR   @map("error")
+  SUCCESS @map("success")
+
+  @@schema("public")
+}
+
+model ChatRoom {
+  id          String   @id @default(uuid()) @db.Uuid
+  name        String
+  createdById String   @db.Uuid
+  created_at  DateTime @default(now())
+
+  createdBy Profile   @relation("CreatedChatRooms", fields: [createdById], references: [id], onDelete: Cascade)
+  messages  Message[]
+
+  @@map("chat_rooms")
+  @@schema("public")
+}
+
+model Message {
+  id        String   @id @default(uuid()) @db.Uuid
+  content   String
+  createdAt DateTime @default(now())
+  userId    String   @db.Uuid
+  roomId    String   @db.Uuid
+
+  sender Profile  @relation("SentMessages", fields: [userId], references: [id], onDelete: Cascade)
+  room   ChatRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
+
+  @@map("messages")
+  @@schema("public")
+}
